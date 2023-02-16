@@ -27,6 +27,7 @@ namespace bot.Controllers
 		[FromServices] UpdateHandlers handleUpdateService,
 		CancellationToken cancellationToken)
 		{
+			Console.WriteLine("HUY");
 			await handleUpdateService.HandleUpdateAsync(update, cancellationToken);
 			return Ok();
 		}

@@ -9,6 +9,16 @@
     }
   },
   "profiles": {
+    "Docker": {
+      "commandName": "Docker",
+      "launchBrowser": true,
+      "launchUrl": "{Scheme}://{ServiceHost}:{ServicePort}/",
+      "environmentVariables": {
+        "ASPNETCORE_URLS": "https://+:8443;http://+:80"
+      },
+      "publishAllPorts": true,
+      "useSSL": true
+    },
     "http": {
       "commandName": "Project",
       "dotnetRunMessages": true,
