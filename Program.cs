@@ -30,6 +30,8 @@ builder.Services.AddHostedService<ConfigureWebhook>();
 
 builder.Services.AddScoped<ISubscriptionRepo, SubscriptionRepo>();
 
+builder.Services.AddHostedService<BackgroundWorker>();
+
 builder.Services
 	.AddControllers()
 	.AddNewtonsoftJson();
