@@ -1,5 +1,6 @@
 ﻿using bot.Data.Subscriptions;
 using bot.Models;
+using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -105,11 +106,37 @@ namespace bot.Data.Bot
 
 			async Task<Message> Usage(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
 			{
-				_repository.AddSubscription(new Subscription { userId = message.From.Id, date = DateTime.Now, query = message.Text });
-				_repository.SaveChanges();
+				if (message.Text != "/start")
+					if (Regex.IsMatch(message.Text, @"^[\p{L}\p{N}\p{P}\s]+$"))
+						if (!_repository.SubscriptionsExists(message.From.Id, message.Text))
+							if (_repository.GetUserSubscriptions(message.From.Id).Count() < 10)
+							{
+								_repository.AddSubscription(new Subscription { userId = message.From.Id, date = DateTime.Now, query = message.Text });
+								_repository.SaveChanges();
+
+								await _botClient.SendTextMessageAsync(
+											chatId: message.From.Id,
+											text: "Successfully added template",
+											cancellationToken: cancellationToken);
+							}
+							else
+								await _botClient.SendTextMessageAsync(
+											chatId: message.From.Id,
+											text: "You have reached maximum number of templates",
+											cancellationToken: cancellationToken);
+						else
+							await _botClient.SendTextMessageAsync(
+											chatId: message.From.Id,
+											text: "Template already exists",
+											cancellationToken: cancellationToken);
+					else
+						await _botClient.SendTextMessageAsync(
+											chatId: message.From.Id,
+											text: "One or more characters are not allowed",
+											cancellationToken: cancellationToken);
 
 				const string usage = "Click to open menu:\n" +
-									 "/menu";
+												 "/menu";
 
 				return await botClient.SendTextMessageAsync(
 					chatId: message.Chat.Id,
@@ -136,23 +163,49 @@ namespace bot.Data.Bot
 			switch (callbackQuery.Data)
 			{
 				case "new":
+					await _botClient.SendChatActionAsync(
+						chatId: callbackQuery.Message!.Chat.Id,
+						chatAction: ChatAction.Typing,
+						cancellationToken: cancellationToken);
+
 					await _botClient.SendTextMessageAsync(
 							chatId: callbackQuery.Message!.Chat.Id,
 							text: "Write your template query:",
 							replyMarkup: forceReplyMarkup,
 							cancellationToken: cancellationToken);
-					//await _botClient.SendChatActionAsync(
-					//	chatId: callbackQuery.Message!.Chat.Id,
-					//	chatAction: ChatAction.Typing,
-					//	cancellationToken: cancellationToken);
+
+					await _botClient.DeleteMessageAsync(
+						chatId: callbackQuery.Message.Chat.Id,
+						messageId: callbackQuery.Message.MessageId);
+
 					break;
 				case "list":
-					foreach (var subscription in _repository.GetUserSubscriptions(callbackQuery.Message!.Chat.Id))
+					var userSubs = _repository.GetUserSubscriptions(callbackQuery.Message!.Chat.Id);
+
+					if (userSubs.Any())
+					{
+						await _botClient.SendTextMessageAsync(
+								chatId: callbackQuery.Message!.Chat.Id,
+								text: "Your templates:",
+								cancellationToken: cancellationToken);
+
+						foreach (var subscription in userSubs)
+							await _botClient.SendTextMessageAsync(
+								chatId: callbackQuery.Message!.Chat.Id,
+								text: subscription.query,
+								replyMarkup: inlineKeyboard,
+								cancellationToken: cancellationToken);
+					}
+					else
 						await _botClient.SendTextMessageAsync(
 							chatId: callbackQuery.Message!.Chat.Id,
-							text: subscription.query,
-							replyMarkup: inlineKeyboard,
+							text: "You currently have 0 templates",
 							cancellationToken: cancellationToken);
+
+					await _botClient.DeleteMessageAsync(
+						chatId: callbackQuery.Message.Chat.Id,
+						messageId: callbackQuery.Message.MessageId);
+
 					break;
 				case "delete":
 					if (_repository.SubscriptionsExists(callbackQuery.Message!.Chat.Id, callbackQuery.Message.Text))
@@ -171,6 +224,11 @@ namespace bot.Data.Bot
 							text: "Error: There is no such template",
 							cancellationToken: cancellationToken);
 					}
+
+					await _botClient.DeleteMessageAsync(
+						chatId: callbackQuery.Message.Chat.Id,
+						messageId: callbackQuery.Message.MessageId);
+
 					break;
 			}
 		}

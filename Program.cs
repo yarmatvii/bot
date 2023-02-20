@@ -10,7 +10,6 @@ var builder = WebApplication.CreateBuilder(args);
 // Setup Bot configuration
 var botConfigurationSection = builder.Configuration.GetSection(BotConfiguration.Configuration);
 builder.Services.Configure<BotConfiguration>(botConfigurationSection);
-Console.WriteLine("DA");
 var botConfiguration = botConfigurationSection.Get<BotConfiguration>();
 
 builder.Services.AddHttpClient("telegram_bot_client")
@@ -22,7 +21,7 @@ builder.Services.AddHttpClient("telegram_bot_client")
 				});
 
 builder.Services.AddDbContext<SubscriptionsContext>(options =>
-	options.UseSqlServer(builder.Configuration.GetConnectionString("SubscriptionsContext1")
+	options.UseSqlServer(builder.Configuration.GetConnectionString("SubscriptionsContext")
 	?? throw new InvalidOperationException("Connection string 'SubscriptionsContext' not found.")));
 
 builder.Services.AddScoped<UpdateHandlers>();

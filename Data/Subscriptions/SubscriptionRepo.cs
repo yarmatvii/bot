@@ -25,14 +25,14 @@ namespace bot.Data.Subscriptions
 			_context.Subscriptions.RemoveRange(subscription);
 		}
 
-		public IEnumerable<Subscription> GetAllSubscriptions()
+		public IQueryable<Subscription> GetAllSubscriptions()
 		{
-			return _context.Subscriptions.ToList();
+			return _context.Subscriptions.OrderByDescending(x => x.date);
 		}
 
-		public IEnumerable<Subscription> GetUserSubscriptions(long userId)
+		public IQueryable<Subscription> GetUserSubscriptions(long userId)
 		{
-			return _context.Subscriptions.ToList().Where(x => x.userId == userId);
+			return _context.Subscriptions.Where(x => x.userId == userId);
 		}
 
 		public bool SaveChanges()
