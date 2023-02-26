@@ -142,10 +142,9 @@ public class BackgroundWorker : IHostedService, IDisposable
 					}
 
 					foreach (var p in substructedPosts)
-						await _botClient.SendPhotoAsync(
+						await _botClient.SendTextMessageAsync(
 							chatId: s.User.Id,
-							photo: p.Image,
-							caption: $"{p.Title}</br>{p.Price}</br>{p.Date}</br> <i>Джерело</i>: <a href={p.Uri}>LINK</a>",
+							text: $"{p.Title}</br>{p.Price}</br>{p.Date}</br> <i>Джерело</i>: <a href={p.Uri}>LINK</a>",
 							parseMode: ParseMode.Html
 							);
 				}

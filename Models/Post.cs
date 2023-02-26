@@ -10,10 +10,6 @@ namespace bot.Models
 		[Required]
 		public string? Title { get; set; }
 		[Required]
-		public string? Image { get; set; }
-		[Required]
-		public string? Status { get; set; }
-		[Required]
 		public string? Uri { get; set; }
 		[Required]
 		public string? Price { get; set; }

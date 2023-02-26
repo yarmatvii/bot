@@ -23,7 +23,7 @@ builder.Services.AddHttpClient("telegram_bot_client")
 				});
 
 builder.Services.AddDbContextFactory<SubscriptionsContext>(options =>
-	options.UseSqlServer(builder.Configuration.GetConnectionString("SubscriptionsContext2")
+	options.UseSqlServer(builder.Configuration.GetConnectionString("SubscriptionsContext1")
 	?? throw new InvalidOperationException("Connection string 'SubscriptionsContext' not found.")));
 
 builder.Services.AddScoped<UpdateHandlers>();
@@ -36,7 +36,7 @@ builder.Services.AddHostedService<ConfigureWebhook>();
 
 builder.Services.AddSingleton<IUOW, UOW>();
 
-builder.Services.AddHostedService<BackgroundWorker>();
+//builder.Services.AddHostedService<BackgroundWorker>();
 
 builder.Services.AddHttpClient<IDataParserDataClient, HttpDataParserDataClient>(client =>
 {

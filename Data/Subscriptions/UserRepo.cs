@@ -14,6 +14,7 @@ namespace bot.Data.Subscriptions
 
 		public void Create(User item)
 		{
+			//_context.Database.ExecuteSqlRaw("SET IDENTITY_INSERT dbo.Users ON;");
 			if (item == null)
 				throw new ArgumentNullException(nameof(item));
 			if (!Exists(item.Id))
