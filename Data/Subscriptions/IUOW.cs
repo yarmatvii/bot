@@ -7,6 +7,6 @@ namespace bot.Data.Subscriptions
 		IRepository<Post> Posts { get; }
 		IRepository<Subscription> Subscriptions { get; }
 		IRepository<User> Users { get; }
-		void Save();
+		Task Save();
 	}
 }

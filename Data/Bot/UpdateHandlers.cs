@@ -132,7 +132,7 @@ namespace bot.Data.Bot
 				Subscription s = new Subscription { User = user, date = DateTime.Now, query = message.Text };
 
 				_UOW.Subscriptions.Create(s);
-				_UOW.Save();
+				await _UOW.Save();
 
 				await botClient.SendTextMessageAsync(
 							chatId: message.From.Id,
@@ -147,7 +147,7 @@ namespace bot.Data.Bot
 			async Task OnStart(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
 			{
 				_UOW.Users.Create(new Models.User { Id = message.From.Id });
-				_UOW.Save();
+				await _UOW.Save();
 
 				await Menu(botClient, message, cancellationToken);
 			}
@@ -232,7 +232,7 @@ namespace bot.Data.Bot
 					if (_UOW.Subscriptions.Exists(callbackQuery.Message!.Chat.Id, callbackQuery.Message.Text))
 					{
 						_UOW.Subscriptions.Delete(callbackQuery.Message!.Chat.Id, callbackQuery.Message.Text);
-						_UOW.Save();
+						await _UOW.Save();
 						await _botClient.AnswerCallbackQueryAsync(
 							callbackQueryId: callbackQuery.Id,
 							text: "Successfully deleted",
@@ -337,7 +337,7 @@ namespace bot.Data.Bot
 				return;
 			}
 
-			_UOW.Save();
+			await _UOW.Save();
 		}
 
 		private async Task Menu(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)

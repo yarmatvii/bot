@@ -45,9 +45,9 @@ namespace bot.Data.Subscriptions
 			}
 		}
 
-		public void Save()
+		public async Task Save()
 		{
-			db.SaveChanges();
+			await db.SaveChangesAsync();
 		}
 	}
 }

@@ -36,7 +36,7 @@ builder.Services.AddHostedService<ConfigureWebhook>();
 
 builder.Services.AddSingleton<IUOW, UOW>();
 
-//builder.Services.AddHostedService<BackgroundWorker>();
+builder.Services.AddHostedService<BackgroundWorker>();
 
 builder.Services.AddHttpClient<IDataParserDataClient, HttpDataParserDataClient>(client =>
 {

@@ -1,9 +1,12 @@
 using bot.Data.Subscriptions;
 using bot.Models;
 using bot.SyncDataServices.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Newtonsoft.Json;
+using System.Linq;
 using System.Linq.Expressions;
+using System.Numerics;
 using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
 
@@ -16,11 +19,11 @@ public class BackgroundWorker : IHostedService, IDisposable
 	private readonly IUOW _UOW;
 	private Task _timerTask;
 
-	public BackgroundWorker(ILogger<BackgroundWorker> logger, IDataParserDataClient dataParserDataClient, ITelegramBotClient botClient, IUOW UOW)
+	public BackgroundWorker(ILogger<BackgroundWorker> logger, IDataParserDataClient dataParserDataClient, ITelegramBotClient botClient, IUOW UOW, IDbContextFactory<SubscriptionsContext> factory)
 	{
 		_logger = logger;
 		_dataParserDataClient = dataParserDataClient;
-		_timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+		_timer = new PeriodicTimer(TimeSpan.FromSeconds(100));
 		_botClient = botClient;
 		_UOW = UOW;
 	}
@@ -59,7 +62,7 @@ public class BackgroundWorker : IHostedService, IDisposable
 
 			while (await _timer.WaitForNextTickAsync())
 			{
-				foreach (var s in _UOW.Subscriptions.GetAll())
+				foreach (var s in _UOW.Subscriptions.GetAll().ToList())
 				{
 					result = "";
 
@@ -109,19 +112,23 @@ public class BackgroundWorker : IHostedService, IDisposable
 
 					foreach (Post post in posts)
 					{
-						if (post.Price is not null)    //REMOVE
+						if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
 						{
-							if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
-							{
-								_logger.LogWarning($"Subscription {s.query} was deleted during foreach");
-								continue;
-							}
-
-							post.Subscription = _UOW.Subscriptions.GetByUser(s.User.Id).Where(x => x.query == s.query).FirstOrDefault();
+							_logger.LogWarning($"Subscription {s.query} was deleted during foreach");
+							break;
 						}
+
+						post.Subscription = _UOW.Subscriptions.GetByUser(s.User.Id).ToList().Where(x => x.query == s.query).FirstOrDefault();
 					}
 
-					var substructedPosts = posts.Except(_UOW.Posts.GetByUser(s.Id));
+					if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+					{
+						_logger.LogWarning($"Subscription {s.query} was deleted during foreach or after it");
+						continue;
+					}
+
+					var second = _UOW.Posts.GetByUser(s.Id).ToList();
+					List<Post> substructedPosts = posts.ExceptBy(second.Select(p => p.Uri), p => p.Uri).ToList();
 
 					foreach (var p in substructedPosts)
 						_UOW.Posts.Create(p);
@@ -134,19 +141,17 @@ public class BackgroundWorker : IHostedService, IDisposable
 
 					try
 					{
-						_UOW.Save();
+						await _UOW.Save();
 					}
 					catch (Exception ex)
 					{
-						_logger.LogError($"BackgroundWorker_UOW.Save(); {ex.Message}");
+						_logger.LogError($"BackgroundWorker_UOW.Save() : {ex.Message}");
 					}
 
 					foreach (var p in substructedPosts)
-						await _botClient.SendTextMessageAsync(
-							chatId: s.User.Id,
-							text: $"{p.Title}</br>{p.Price}</br>{p.Date}</br> <i>Джерело</i>: <a href={p.Uri}>LINK</a>",
-							parseMode: ParseMode.Html
-							);
+						_botClient.SendTextMessageAsync(
+						chatId: s.User.Id,
+						text: $"{p.Title}\n{p.Price}\n{p.Date}\n{p.Uri}");
 				}
 			}
 		}
