@@ -1,6 +1,8 @@
 ﻿using bot.Controllers;
 using bot.Data.Bot;
 using bot.Data.Subscriptions;
+using bot.Models;
+using bot.SyncDataServices.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
@@ -20,17 +22,26 @@ builder.Services.AddHttpClient("telegram_bot_client")
 					return new TelegramBotClient(options, httpClient);
 				});
 
-builder.Services.AddDbContext<SubscriptionsContext>(options =>
-	options.UseSqlServer(builder.Configuration.GetConnectionString("SubscriptionsContext")
+builder.Services.AddDbContextFactory<SubscriptionsContext>(options =>
+	options.UseSqlServer(builder.Configuration.GetConnectionString("SubscriptionsContext2")
 	?? throw new InvalidOperationException("Connection string 'SubscriptionsContext' not found.")));
 
 builder.Services.AddScoped<UpdateHandlers>();
 
 builder.Services.AddHostedService<ConfigureWebhook>();
 
-builder.Services.AddScoped<ISubscriptionRepo, SubscriptionRepo>();
+//builder.Services.AddSingleton<IRepository<Post>, PostRepo>();
+//builder.Services.AddSingleton<IRepository<Subscription>, SubscriptionRepo>();
+//builder.Services.AddSingleton<IRepository<User>, UserRepo>();
+
+builder.Services.AddSingleton<IUOW, UOW>();
 
 builder.Services.AddHostedService<BackgroundWorker>();
+
+builder.Services.AddHttpClient<IDataParserDataClient, HttpDataParserDataClient>(client =>
+{
+	client.Timeout = Timeout.InfiniteTimeSpan; // set timeout to infinite
+});
 
 builder.Services
 	.AddControllers()

@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace bot.Data.Subscriptions
 {
-	public class SubscriptionRepo : ISubscriptionRepo
+	public class SubscriptionRepo : IRepository<Subscription>
 	{
 		private readonly SubscriptionsContext _context;
 
@@ -12,37 +12,37 @@ namespace bot.Data.Subscriptions
 			_context = context;
 		}
 
-		public void AddSubscription(Subscription sub)
+		public void Create(Subscription item)
 		{
-			if (sub == null)
-				throw new ArgumentNullException(nameof(sub));
-			_context.Subscriptions.Add(sub);
+			if (item == null)
+				throw new ArgumentNullException(nameof(item));
+			_context.Subscriptions.Add(item);
 		}
 
-		public void DeleteSubscription(long userId, string query)
+		public void Delete(long userId, string query)
 		{
-			var subscription = _context.Subscriptions.Where(x => x.userId == userId && x.query == query);
+			var subscription = _context.Subscriptions.Include(x => x.User).Where(x => x.User.Id == userId && x.query == query);
 			_context.Subscriptions.RemoveRange(subscription);
 		}
 
-		public IQueryable<Subscription> GetAllSubscriptions()
+		public bool Exists(long userId, string query)
 		{
-			return _context.Subscriptions.OrderByDescending(x => x.date);
+			return (_context.Subscriptions?.Include(x => x.User).Any(x => x.User.Id == userId && x.query == query)).GetValueOrDefault();
 		}
 
-		public IQueryable<Subscription> GetUserSubscriptions(long userId)
+		public Subscription Get(int id)
 		{
-			return _context.Subscriptions.Where(x => x.userId == userId);
+			return _context.Subscriptions.Where(x => x.Id == id).FirstOrDefault();
 		}
 
-		public bool SaveChanges()
+		public IQueryable<Subscription> GetAll()
 		{
-			return _context.SaveChanges() >= 0;
+			return _context.Subscriptions.Include(x => x.User).OrderByDescending(x => x.date);
 		}
 
-		public bool SubscriptionsExists(long userId, string query)
+		public IQueryable<Subscription> GetByUser(long userId)
 		{
-			return (_context.Subscriptions?.Any(x => x.userId == userId && x.query == query)).GetValueOrDefault();
+			return _context.Subscriptions.Include(x => x.User).Where(x => x.User.Id == userId);
 		}
 	}
 }

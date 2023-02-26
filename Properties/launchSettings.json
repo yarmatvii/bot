@@ -41,8 +41,8 @@
     },
     "IIS Express": {
       "commandName": "IISExpress",
-      "dotnetRunMessages": true,
-      "launchBrowser": false,
+      "dotnetRunMessages": false,
+      "launchBrowser": true,
       "launchUrl": "",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"

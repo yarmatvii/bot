@@ -1,6 +1,12 @@
 ﻿using bot.Data.Subscriptions;
 using bot.Models;
+using bot.SyncDataServices.Http;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -9,17 +15,19 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace bot.Data.Bot
 {
-	public class UpdateHandlers
+	public partial class UpdateHandlers
 	{
 		private readonly ITelegramBotClient _botClient;
 		private readonly ILogger<UpdateHandlers> _logger;
-		private readonly ISubscriptionRepo _repository;
+		private readonly IDataParserDataClient _dataParserDataClient;
+		private readonly IUOW _UOW;
 
-		public UpdateHandlers(ITelegramBotClient botClient, ILogger<UpdateHandlers> logger, ISubscriptionRepo repo)
+		public UpdateHandlers(ITelegramBotClient botClient, ILogger<UpdateHandlers> logger, IDataParserDataClient dataParserDataClient, IUOW UOW)
 		{
 			_botClient = botClient;
 			_logger = logger;
-			_repository = repo;
+			_dataParserDataClient = dataParserDataClient;
+			_UOW = UOW;
 		}
 
 		public Task HandleErrorAsync(Exception exception, CancellationToken cancellationToken)
@@ -30,7 +38,7 @@ namespace bot.Data.Bot
 				_ => exception.ToString()
 			};
 
-			_logger.LogInformation("HandleError: {ErrorMessage}", ErrorMessage);
+			_logger.LogWarning("HandleError: {ErrorMessage}", ErrorMessage);
 			return Task.CompletedTask;
 		}
 
@@ -49,28 +57,26 @@ namespace bot.Data.Bot
 
 		private async Task BotOnMessageReceived(Message message, CancellationToken cancellationToken)
 		{
-			_logger.LogInformation("Receive message type: {MessageType}", message.Type);
+			_logger.LogWarning("Receive message type: {MessageType}", message.Type);
 			if (message.Text is not { } messageText)
 				return;
 			var action = messageText.Split(' ')[0] switch
 			{
 				"/menu" => SendMenuInlineKeyboard(_botClient, message, cancellationToken),
-				_ => Usage(_botClient, message, cancellationToken)
+				"/start" => OnStart(_botClient, message, cancellationToken),
+				_ => ProcessInput(_botClient, message, cancellationToken)
 			};
-			Message sentMessage = await action;
-			_logger.LogInformation("The message was sent with id: {SentMessageId}", sentMessage.MessageId);
+
+			await action;
 
 			// Send inline keyboard
 			// You can process responses in BotOnCallbackQueryReceived handler
-			static async Task<Message> SendMenuInlineKeyboard(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
+			static async Task SendMenuInlineKeyboard(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
 			{
 				await botClient.SendChatActionAsync(
 					chatId: message.Chat.Id,
 					chatAction: ChatAction.Typing,
 					cancellationToken: cancellationToken);
-
-				// Simulate longer running task
-				//await Task.Delay(500, cancellationToken);
 
 				InlineKeyboardMarkup inlineKeyboard = new(
 					new[]
@@ -79,77 +85,78 @@ namespace bot.Data.Bot
 						InlineKeyboardButton.WithCallbackData("My Templates", "list")
 					});
 
-				return await botClient.SendTextMessageAsync(
-						chatId: message.Chat.Id,
-						text: "Menu:",
-						replyMarkup: inlineKeyboard,
-						cancellationToken: cancellationToken);
+				await botClient.SendTextMessageAsync(
+					   chatId: message.Chat.Id,
+					   text: "Menu:",
+					   replyMarkup: inlineKeyboard,
+					   cancellationToken: cancellationToken);
 			}
 
-			//static async Task<Message> SendReplyKeyboard(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
-			//{
-			//	ReplyKeyboardMarkup replyKeyboardMarkup = new(
-			//		new[]
-			//		{
-			//			new KeyboardButton[] { "/NewTemplate", "/MyTemplates" },
-			//		})
-			//	{
-			//		ResizeKeyboard = true
-			//	};
-
-			//	return await botClient.SendTextMessageAsync(
-			//		chatId: message.Chat.Id,
-			//		text: "Menu:",
-			//		replyMarkup: replyKeyboardMarkup,
-			//		cancellationToken: cancellationToken);
-			//}
-
-			async Task<Message> Usage(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
+			async Task ProcessInput(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
 			{
-				if (message.Text != "/start")
-					if (Regex.IsMatch(message.Text, @"^[\p{L}\p{N}\p{P}\s]+$"))
-						if (!_repository.SubscriptionsExists(message.From.Id, message.Text))
-							if (_repository.GetUserSubscriptions(message.From.Id).Count() < 10)
-							{
-								_repository.AddSubscription(new Subscription { userId = message.From.Id, date = DateTime.Now, query = message.Text });
-								_repository.SaveChanges();
-
-								await _botClient.SendTextMessageAsync(
-											chatId: message.From.Id,
-											text: "Successfully added template",
-											cancellationToken: cancellationToken);
-							}
-							else
-								await _botClient.SendTextMessageAsync(
-											chatId: message.From.Id,
-											text: "You have reached maximum number of templates",
-											cancellationToken: cancellationToken);
-						else
-							await _botClient.SendTextMessageAsync(
-											chatId: message.From.Id,
-											text: "Template already exists",
-											cancellationToken: cancellationToken);
-					else
-						await _botClient.SendTextMessageAsync(
+				if (!MyRegex().IsMatch(message.Text))
+				{
+					await botClient.SendTextMessageAsync(
 											chatId: message.From.Id,
 											text: "One or more characters are not allowed",
 											cancellationToken: cancellationToken);
 
-				const string usage = "Click to open menu:\n" +
-												 "/menu";
+					await Menu(botClient, message, cancellationToken);
 
-				return await botClient.SendTextMessageAsync(
-					chatId: message.Chat.Id,
-					text: usage,
-					replyMarkup: new ReplyKeyboardRemove(),
-					cancellationToken: cancellationToken);
+					return;
+				}
+				if (_UOW.Subscriptions.Exists(message.From.Id, message.Text))
+				{
+					await botClient.SendTextMessageAsync(
+									chatId: message.From.Id,
+									text: "Template already exists",
+									cancellationToken: cancellationToken);
+
+					await Menu(botClient, message, cancellationToken);
+
+					return;
+				}
+				if (_UOW.Subscriptions.GetByUser(message.From.Id).Count() >= 10)
+				{
+					await botClient.SendTextMessageAsync(
+									chatId: message.From.Id,
+									text: "You have reached maximum number of templates",
+									cancellationToken: cancellationToken);
+
+					await Menu(botClient, message, cancellationToken);
+
+					return;
+				}
+
+				Models.User user = _UOW.Users.Get((int)message.Chat.Id);
+				Subscription s = new Subscription { User = user, date = DateTime.Now, query = message.Text };
+
+				_UOW.Subscriptions.Create(s);
+				_UOW.Save();
+
+				await botClient.SendTextMessageAsync(
+							chatId: message.From.Id,
+							text: "Successfully added template",
+							cancellationToken: cancellationToken);
+
+				await Menu(botClient, message, cancellationToken);
+
+				FirstParse(s);
+			}
+
+			async Task OnStart(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
+			{
+				_UOW.Users.Create(new Models.User { Id = message.From.Id });
+				_UOW.Save();
+
+				await Menu(botClient, message, cancellationToken);
 			}
 		}
 
 		// Process Inline Keyboard callback data
 		private async Task BotOnCallbackQueryReceived(CallbackQuery callbackQuery, CancellationToken cancellationToken)
 		{
-			_logger.LogInformation("Received inline keyboard callback from: {CallbackQueryId}", callbackQuery.Id);
+			_logger.LogWarning("Received inline keyboard callback from: {CallbackQueryId}", callbackQuery.Id);
 
 			InlineKeyboardMarkup inlineKeyboard = new(
 					new[]
@@ -174,13 +181,20 @@ namespace bot.Data.Bot
 							replyMarkup: forceReplyMarkup,
 							cancellationToken: cancellationToken);
 
-					await _botClient.DeleteMessageAsync(
-						chatId: callbackQuery.Message.Chat.Id,
-						messageId: callbackQuery.Message.MessageId);
+					try
+					{
+						await _botClient.DeleteMessageAsync(
+							chatId: callbackQuery.Message.Chat.Id,
+							messageId: callbackQuery.Message.MessageId);
+					}
+					catch
+					{
+						_logger.LogError("ERROR deleting msg in 'new'");
+					}
 
 					break;
 				case "list":
-					var userSubs = _repository.GetUserSubscriptions(callbackQuery.Message!.Chat.Id);
+					var userSubs = _UOW.Subscriptions.GetByUser(callbackQuery.Message!.Chat.Id);
 
 					if (userSubs.Any())
 					{
@@ -202,16 +216,23 @@ namespace bot.Data.Bot
 							text: "You currently have 0 templates",
 							cancellationToken: cancellationToken);
 
-					await _botClient.DeleteMessageAsync(
-						chatId: callbackQuery.Message.Chat.Id,
-						messageId: callbackQuery.Message.MessageId);
+					try
+					{
+						await _botClient.DeleteMessageAsync(
+							chatId: callbackQuery.Message.Chat.Id,
+							messageId: callbackQuery.Message.MessageId);
+					}
+					catch
+					{
+						_logger.LogError("ERROR deleting msg in 'list'");
+					}
 
 					break;
 				case "delete":
-					if (_repository.SubscriptionsExists(callbackQuery.Message!.Chat.Id, callbackQuery.Message.Text))
+					if (_UOW.Subscriptions.Exists(callbackQuery.Message!.Chat.Id, callbackQuery.Message.Text))
 					{
-						_repository.DeleteSubscription(callbackQuery.Message!.Chat.Id, callbackQuery.Message.Text);
-						_repository.SaveChanges();
+						_UOW.Subscriptions.Delete(callbackQuery.Message!.Chat.Id, callbackQuery.Message.Text);
+						_UOW.Save();
 						await _botClient.AnswerCallbackQueryAsync(
 							callbackQueryId: callbackQuery.Id,
 							text: "Successfully deleted",
@@ -225,9 +246,16 @@ namespace bot.Data.Bot
 							cancellationToken: cancellationToken);
 					}
 
-					await _botClient.DeleteMessageAsync(
-						chatId: callbackQuery.Message.Chat.Id,
-						messageId: callbackQuery.Message.MessageId);
+					try
+					{
+						await _botClient.DeleteMessageAsync(
+							chatId: callbackQuery.Message.Chat.Id,
+							messageId: callbackQuery.Message.MessageId);
+					}
+					catch
+					{
+						_logger.LogError("ERROR deleting msg in 'delete'");
+					}
 
 					break;
 			}
@@ -235,8 +263,95 @@ namespace bot.Data.Bot
 
 		private Task UnknownUpdateHandlerAsync(Update update, CancellationToken cancellationToken)
 		{
-			_logger.LogInformation("No such command: {UpdateType}", update.Type);
+			_logger.LogWarning("No such command: {UpdateType}", update.Type);
 			return Task.CompletedTask;
 		}
+
+		private async Task FirstParse(Subscription s)
+		{
+			string? result = "";
+
+			if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+			{
+				_logger.LogWarning($"Subscription {s.query} was deleted before ParseData");
+				return;
+			}
+
+			// Send Sync Message
+			try
+			{
+				result = await _dataParserDataClient.ParseData(s.query);
+			}
+			catch (Exception ex)
+			{
+				_logger.LogWarning($"--> Could not send synchronously: {ex.Message}");
+				return;
+			}
+
+			if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+			{
+				_logger.LogWarning($"Subscription {s.query} was deleted before DeserializeObject");
+				return;
+			}
+
+			List<Post> posts;
+			posts = JsonConvert.DeserializeObject<List<Post>>(result);
+
+			if (posts is null)
+			{
+				_logger.LogWarning($"NULL for {s.query}");
+				return;
+			}
+
+			if (posts.Count == 0)
+			{
+				_logger.LogWarning($"No data found for {s.query}");
+				return;
+			}
+
+			if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+			{
+				_logger.LogWarning($"Subscription {s.query} was deleted before DB.Create");
+				return;
+			}
+
+			foreach (Post post in posts)
+			{
+				if (post.Price is not null)    //REMOVE
+				{
+					if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+					{
+						_logger.LogWarning($"Subscription {s.query} was deleted during foreach");
+						return;
+					}
+
+					post.Subscription = _UOW.Subscriptions.GetByUser(s.User.Id).Where(x => x.query == s.query).FirstOrDefault();
+
+					_UOW.Posts.Create(post);
+				}
+			}
+
+			if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+			{
+				_logger.LogWarning($"Subscription {s.query} was deleted before DB.Save");
+				return;
+			}
+
+			_UOW.Save();
+		}
+
+		private async Task Menu(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
+		{
+			const string usage = "Click to open menu:\n" +
+								 "/menu";
+
+			await botClient.SendTextMessageAsync(
+											chatId: message.From.Id,
+											text: usage,
+											cancellationToken: cancellationToken);
+		}
+
+		[GeneratedRegex("^[\\p{L}\\p{N}\\p{P}\\s]+$")]
+		private static partial Regex MyRegex();
 	}
 }

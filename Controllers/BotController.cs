@@ -14,12 +14,7 @@ namespace bot.Controllers
 	[ApiController]
 	public class BotController : ControllerBase
 	{
-		private readonly ISubscriptionRepo _repository;
-
-		public BotController(ISubscriptionRepo repo)
-		{
-			_repository = repo;
-		}
+		public BotController() { }
 
 		[HttpPost]
 		public async Task<IActionResult> Post(
@@ -27,15 +22,8 @@ namespace bot.Controllers
 		[FromServices] UpdateHandlers handleUpdateService,
 		CancellationToken cancellationToken)
 		{
-			Console.WriteLine("HUY");
 			await handleUpdateService.HandleUpdateAsync(update, cancellationToken);
 			return Ok();
-		}
-
-		[HttpGet]
-		public ActionResult<IEnumerable<Subscription>> GetSubscriptions()
-		{
-			return Ok(_repository.GetAllSubscriptions());
 		}
 	}
 }

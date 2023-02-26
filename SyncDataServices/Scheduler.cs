@@ -1,27 +1,28 @@
 using bot.Data.Subscriptions;
+using bot.Models;
+using bot.SyncDataServices.Http;
+using Microsoft.Extensions.Hosting;
+using Newtonsoft.Json;
+using System.Linq.Expressions;
 using Telegram.Bot;
 using Telegram.Bot.Types.Enums;
 
 public class BackgroundWorker : IHostedService, IDisposable
 {
 	private readonly ILogger<BackgroundWorker> _logger;
-	private readonly HttpClient _httpClient;
+	private readonly IDataParserDataClient _dataParserDataClient;
 	private readonly PeriodicTimer _timer;
 	private readonly ITelegramBotClient _botClient;
-	private readonly ISubscriptionRepo _repository;
+	private readonly IUOW _UOW;
 	private Task _timerTask;
-	private readonly List<long> _ids = new();
 
-	public BackgroundWorker(ILogger<BackgroundWorker> logger, HttpClient httpClient, ITelegramBotClient botClient, ISubscriptionRepo repository)
+	public BackgroundWorker(ILogger<BackgroundWorker> logger, IDataParserDataClient dataParserDataClient, ITelegramBotClient botClient, IUOW UOW)
 	{
 		_logger = logger;
-		_httpClient = httpClient;
+		_dataParserDataClient = dataParserDataClient;
 		_timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
 		_botClient = botClient;
-		_repository = repository;
-		_ids.Add(547515846);
-		_ids.Add(821200544);
-
+		_UOW = UOW;
 	}
 
 	public Task StartAsync(CancellationToken cancellationToken)
@@ -54,17 +55,99 @@ public class BackgroundWorker : IHostedService, IDisposable
 		{
 			_logger.LogInformation("Running background task.");
 
+			string? result;
+
 			while (await _timer.WaitForNextTickAsync())
 			{
-				foreach (var id in _ids)
+				foreach (var s in _UOW.Subscriptions.GetAll())
 				{
-					await _botClient.SendPhotoAsync(
-						chatId: id,
-						photo: "https://ireland.apollo.olxcdn.com/v1/files/j2kmfko25oov3-UA/image;s=200x200",
-						caption: $"<b>USB Лампа для кемпінгу 30 ,60 , 180 ват {id}</b>. <i>Джерело</i>: <a href=\"https://www.olx.ua/d/uk/obyavlenie/usb-lampa-dlya-kempngu-30-60-180-vat-IDQJGtr.html\">Olx</a>",
-						parseMode: ParseMode.Html
-						//cancellationToken: _cts.Token
-						);
+					result = "";
+
+					if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+					{
+						_logger.LogWarning($"Subscription {s.query} was deleted before ParseData");
+						continue;
+					}
+
+					// Send Sync Message
+					try
+					{
+						result = await _dataParserDataClient.ParseData(s.query);
+					}
+					catch (Exception ex)
+					{
+						_logger.LogWarning($"--> Could not send synchronously: {ex.Message}");
+						continue;
+					}
+
+					if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+					{
+						_logger.LogWarning($"Subscription {s.query} was deleted before DeserializeObject");
+						continue;
+					}
+
+					List<Post> posts;
+					posts = JsonConvert.DeserializeObject<List<Post>>(result);
+
+					if (posts is null)
+					{
+						_logger.LogWarning($"NULL for {s.query}");
+						continue;
+					}
+
+					if (posts.Count == 0)
+					{
+						_logger.LogWarning($"No data found for {s.query}");
+						continue;
+					}
+
+					if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+					{
+						_logger.LogWarning($"Subscription {s.query} was deleted before DB.Create");
+						continue;
+					}
+
+					foreach (Post post in posts)
+					{
+						if (post.Price is not null)    //REMOVE
+						{
+							if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+							{
+								_logger.LogWarning($"Subscription {s.query} was deleted during foreach");
+								continue;
+							}
+
+							post.Subscription = _UOW.Subscriptions.GetByUser(s.User.Id).Where(x => x.query == s.query).FirstOrDefault();
+						}
+					}
+
+					var substructedPosts = posts.Except(_UOW.Posts.GetByUser(s.Id));
+
+					foreach (var p in substructedPosts)
+						_UOW.Posts.Create(p);
+
+					if (!_UOW.Subscriptions.Exists(s.User.Id, s.query))
+					{
+						_logger.LogWarning($"Subscription {s.query} was deleted before DB.Save");
+						continue;
+					}
+
+					try
+					{
+						_UOW.Save();
+					}
+					catch (Exception ex)
+					{
+						_logger.LogError($"BackgroundWorker_UOW.Save(); {ex.Message}");
+					}
+
+					foreach (var p in substructedPosts)
+						await _botClient.SendPhotoAsync(
+							chatId: s.User.Id,
+							photo: p.Image,
+							caption: $"{p.Title}</br>{p.Price}</br>{p.Date}</br> <i>Джерело</i>: <a href={p.Uri}>LINK</a>",
+							parseMode: ParseMode.Html
+							);
 				}
 			}
 		}
