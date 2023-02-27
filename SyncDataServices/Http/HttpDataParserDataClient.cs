@@ -17,13 +17,7 @@ namespace bot.SyncDataServices.Http
 		{
 			var response = await _httpClient.GetStringAsync($"{_configuration["DataParserService"]}" + query);
 
-			//if (response is not null)
-			//{
-			//	Console.WriteLine("--> Sync POST to CommandService was OK!");
 			return response;
-			//}
-			//	Console.WriteLine("--> Sync POST to CommandService was NOT OK!");
-			//return 
 		}
 	}
 }

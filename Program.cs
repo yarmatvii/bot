@@ -43,6 +43,8 @@ builder.Services.AddHttpClient<IDataParserDataClient, HttpDataParserDataClient>(
 	client.Timeout = Timeout.InfiniteTimeSpan; // set timeout to infinite
 });
 
+builder.Services.AddHttpClient<INgrokDataClient, HttpNgrokDataClient>();
+
 builder.Services
 	.AddControllers()
 	.AddNewtonsoftJson();
